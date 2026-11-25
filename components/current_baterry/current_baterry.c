@@ -26,7 +26,7 @@
  *
  * Rshunt = 200 milliohm = 0.2 ohm
  */
-#define SHUNT_RESISTANCE_OHM         1.0f
+#define SHUNT_RESISTANCE_OHM         0.5f
 
 
 /*
@@ -245,8 +245,8 @@ esp_err_t current_baterry_read(
      * Vshunt = Vout / 1.1
      */
     float shunt_voltage =
-        amplifier_voltage /
-        CURRENT_AMPLIFIER_GAIN;
+       ( amplifier_voltage /
+        CURRENT_AMPLIFIER_GAIN)*2;
 
 
     /*

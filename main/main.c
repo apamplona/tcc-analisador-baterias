@@ -24,25 +24,77 @@
 
 
 /*
- * Corrente de descarga.
+ * Tensao minima permitida para a bateria.
+ *
+ * Exemplo para bateria Li-ion 3S:
+ *
+ * 3.2 V por celula:
+ *
+ * 3 x 3.2 V = 9.6 V
+ *
+ * Ajustar posteriormente de acordo
+ * com a bateria utilizada no ensaio.
  */
-#define CURRENT_TARGET_A             1.500f
+#define BATTERY_CUTOFF_V             9.60f
 
 
 /*
- * Duracao total do ensaio.
+ * Numero de leituras consecutivas
+ * abaixo da tensao minima necessarias
+ * para encerrar o ensaio.
  *
- * 10 minutos:
+ * Com periodo de 100 ms:
  *
- * 10 x 60 = 600 segundos
+ * 5 leituras = aproximadamente 500 ms.
  */
-#define TEST_DURATION_SECONDS        600.0
+#define LOW_VOLTAGE_CONFIRM_COUNT    5
+
+
+/*
+ * Perfil de corrente utilizado para
+ * simular uma carga variavel.
+ *
+ * Sequencia:
+ *
+ * 1 A -> 2 A -> 3 A -> 3 A -> 2 A -> 1 A
+ *
+ * Ao chegar ao final, o perfil e
+ * reiniciado enquanto a bateria nao
+ * atingir a tensao de corte.
+ */
+static const float CURRENT_PROFILE_A[] =
+{
+    1.0f,
+    2.0f,
+    3.0f,
+    3.0f,
+    2.0f,
+    1.0f
+};
+
+
+#define CURRENT_PROFILE_LENGTH       \
+    (sizeof(CURRENT_PROFILE_A) /     \
+     sizeof(CURRENT_PROFILE_A[0]))
+
+
+/*
+ * Tempo de permanencia em cada
+ * patamar do perfil de corrente.
+ *
+ * 30 segundos por patamar.
+ *
+ * O ciclo completo dura:
+ *
+ * 6 x 30 = 180 segundos.
+ */
+#define CURRENT_PROFILE_STEP_SECONDS 30.0
 
 
 /*
  * Periodo da malha de controle.
  *
- * 100 ms = 10 Hz
+ * 100 ms = 10 Hz.
  */
 #define CONTROL_PERIOD_MS            100
 
@@ -50,9 +102,9 @@
 /*
  * Registro no terminal e CSV.
  *
- * 5 x 100 ms = aproximadamente 500 ms
+ * 5 x 100 ms = aproximadamente 500 ms.
  *
- * 2 amostras por segundo.
+ * 2 registros por segundo.
  */
 #define DATA_LOG_DIVIDER             5
 
@@ -145,30 +197,35 @@ void app_main(void)
      * ========================================================
      */
 
+
+    /*
+     * Inicia o ensaio no primeiro
+     * patamar do perfil: 1 A.
+     */
     current_control_set_target(
-        CURRENT_TARGET_A
+        CURRENT_PROFILE_A[0]
     );
 
 
     /*
-     * Marca o instante real de inicio.
-     *
-     * esp_timer_get_time() retorna
-     * microssegundos.
+     * Instante real de inicio.
      */
     int64_t test_start_time_us =
         esp_timer_get_time();
 
 
+
     printf(
         "\n========================================\n"
         "ENSAIO INICIADO\n"
-        "Corrente alvo: %.3f A\n"
-        "Duracao: %.0f segundos\n"
+        "Modo: perfil de corrente variavel\n"
+        "Perfil: 1 -> 2 -> 3 -> 3 -> 2 -> 1 A\n"
+        "Tempo por patamar: %.0f s\n"
+        "Tensao de corte: %.2f V\n"
         "========================================\n\n",
 
-        CURRENT_TARGET_A,
-        TEST_DURATION_SECONDS
+        CURRENT_PROFILE_STEP_SECONDS,
+        BATTERY_CUTOFF_V
     );
 
 
@@ -200,6 +257,14 @@ void app_main(void)
         0;
 
 
+    int low_voltage_counter =
+        0;
+
+
+    int last_profile_index =
+        0;
+
+
 
     /*
      * ========================================================
@@ -227,13 +292,48 @@ void app_main(void)
 
         /*
          * ----------------------------------------------------
-         * VERIFICA FIM DO ENSAIO
+         * TENSAO DA BATERIA
          * ----------------------------------------------------
+         *
+         * A tensao agora e lida em todos
+         * os ciclos da malha, pois ela
+         * define o criterio de parada.
+         */
+
+        float vbat =
+            voltage_read();
+
+
+
+        /*
+         * ----------------------------------------------------
+         * CRITERIO DE PARADA POR TENSAO
+         * ----------------------------------------------------
+         *
+         * Sao exigidas varias leituras
+         * consecutivas abaixo do limite
+         * para evitar parada causada por
+         * uma amostra isolada.
          */
 
         if (
-            elapsed_seconds >=
-            TEST_DURATION_SECONDS
+            vbat > 0.0f &&
+            vbat <= BATTERY_CUTOFF_V
+        )
+        {
+            low_voltage_counter++;
+        }
+        else
+        {
+            low_voltage_counter =
+                0;
+        }
+
+
+
+        if (
+            low_voltage_counter >=
+            LOW_VOLTAGE_CONFIRM_COUNT
         )
         {
             /*
@@ -245,15 +345,22 @@ void app_main(void)
             current_control_stop();
 
 
+
             printf(
                 "\n\n========================================\n"
                 "FIM DO ENSAIO\n"
-                "Tempo decorrido: %.2f s\n"
+                "Tensao minima atingida.\n"
+                "Vbat: %.3f V\n"
+                "Limite: %.3f V\n"
+                "Tempo total: %.2f s\n"
                 "Descarga interrompida.\n"
                 "========================================\n\n",
 
+                vbat,
+                BATTERY_CUTOFF_V,
                 elapsed_seconds
             );
+
 
 
             /*
@@ -267,13 +374,10 @@ void app_main(void)
             );
 
 
-            /*
-             * Fecha o arquivo antes
-             * de fazer a leitura completa.
-             */
             ESP_ERROR_CHECK(
                 csv_logger_close()
             );
+
 
 
             /*
@@ -294,15 +398,13 @@ void app_main(void)
             );
 
 
+
             /*
              * ================================================
              * PARA O PROGRAMA
              * ================================================
              *
              * A descarga permanece desligada.
-             *
-             * O ESP32 fica aqui ate ser
-             * reiniciado.
              */
 
             while (1)
@@ -313,6 +415,66 @@ void app_main(void)
                     )
                 );
             }
+        }
+
+
+
+        /*
+         * ----------------------------------------------------
+         * PERFIL DE CORRENTE
+         * ----------------------------------------------------
+         *
+         * Calcula qual patamar deve estar
+         * ativo de acordo com o tempo.
+         */
+
+        int profile_index =
+            ((int)(
+                elapsed_seconds /
+                CURRENT_PROFILE_STEP_SECONDS
+            ))
+            %
+            (int)CURRENT_PROFILE_LENGTH;
+
+
+
+        /*
+         * So altera a referencia quando
+         * ocorre uma mudanca de patamar.
+         *
+         * Isso e importante porque
+         * current_control_set_target()
+         * reaplica o feedforward.
+         */
+
+        if (
+            profile_index !=
+            last_profile_index
+        )
+        {
+            last_profile_index =
+                profile_index;
+
+
+            current_control_set_target(
+                CURRENT_PROFILE_A[
+                    profile_index
+                ]
+            );
+
+
+            printf(
+                "\n"
+                "Mudanca de carga: "
+                "Iref = %.1f A | "
+                "t = %.1f s\n\n",
+
+                CURRENT_PROFILE_A[
+                    profile_index
+                ],
+
+                elapsed_seconds
+            );
         }
 
 
@@ -337,7 +499,7 @@ void app_main(void)
 
         /*
          * ----------------------------------------------------
-         * CONTROLE
+         * CONTROLE DE CORRENTE
          * ----------------------------------------------------
          */
 
@@ -404,16 +566,9 @@ void app_main(void)
 
 
             /*
-             * Tensao da bateria.
+             * Dados atuais do controle.
              */
-            float vbat =
-                voltage_read();
 
-
-
-            /*
-             * Dados do controle.
-             */
             float iref =
                 current_control_get_target();
 

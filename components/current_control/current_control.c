@@ -34,7 +34,7 @@
  *
  * Rshunt = 200 milliohm = 0.2 ohm
  */
-#define SHUNT_RESISTANCE_OHM        1.0f
+#define SHUNT_RESISTANCE_OHM        0.5f
 
 
 /*
@@ -44,7 +44,7 @@
  * O alvo inicial continua sendo 1 A,
  * definido no main.c.
  */
-#define MAX_CURRENT_A               10.0f
+#define MAX_CURRENT_A               4.0f
 
 
 /*
@@ -57,7 +57,7 @@
  * Por isso a banda morta foi definida
  * um pouco acima de um LSB.
  */
-#define CURRENT_DEADBAND_A       0.015f //1R
+//#define CURRENT_DEADBAND_A       0.015f //1R
 //#define CURRENT_DEADBAND_A       0.075f // 0.2R
 
 
@@ -66,11 +66,14 @@
  * Faixas de erro utilizadas
  * para determinar o passo de correcao.
  */
-#define CURRENT_STEP_SMALL_A     0.025f //1R
-#define CURRENT_STEP_MEDIUM_A    0.100f
+//#define CURRENT_STEP_SMALL_A     0.025f //1R
+//#define CURRENT_STEP_MEDIUM_A    0.100f
 
 //#define CURRENT_STEP_SMALL_A     0.200f //0.2R
 //#define CURRENT_STEP_MEDIUM_A    1.000f
+#define CURRENT_DEADBAND_A       0.030f
+#define CURRENT_STEP_SMALL_A     0.080f
+#define CURRENT_STEP_MEDIUM_A    0.400f
 
 /*
  * Passos incrementais do DAC.
